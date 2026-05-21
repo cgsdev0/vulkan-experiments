@@ -1,0 +1,6 @@
+build.ninja
+.ninja*
+CMakeCache.txt
+CMakeFiles/
+VulkanTutorial/
+shader.slang
