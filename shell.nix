@@ -15,6 +15,7 @@ mkShell {
     libxkbcommon
     wayland
     tinyobjloader
+    clang-tools
     tinygltf
     glm
     cmake
@@ -24,6 +25,7 @@ mkShell {
     tracy               # Graphics profiler
     vulkan-tools-lunarg # vkconfig
     ktx-tools
+    vulkan-validation-layers
     stb
   ];
 
@@ -33,4 +35,6 @@ mkShell {
 
   # If it doesn’t get picked up through nix magic
   VULKAN_SDK = "${vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+  VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+
 }
