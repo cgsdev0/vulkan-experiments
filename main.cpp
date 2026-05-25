@@ -48,6 +48,7 @@ class HelloTriangleApplication {
     std::vector<vk::Image> swapChainImages;
     vk::SurfaceFormatKHR swapChainSurfaceFormat;
     vk::Extent2D swapChainExtent;
+    std::vector<vk::raii::ImageView> swapChainImageViews;
 
     void createSurface() {
         VkSurfaceKHR _surface;
@@ -70,6 +71,25 @@ class HelloTriangleApplication {
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapChain();
+        createImageViews();
+    }
+
+    void createImageViews() {
+        assert(swapChainImageViews.empty());
+
+        vk::ImageViewCreateInfo imageViewCreateInfo{
+            .viewType = vk::ImageViewType::e2D,
+            .format = swapChainSurfaceFormat.format,
+            .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+
+        // default swizzling (unnecessary)
+        imageViewCreateInfo.components = {
+            vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity};
+        imageViewCreateInfo.subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor, .levelCount = 1, .layerCount = 1};
+        for (auto &image : swapChainImages) {
+            imageViewCreateInfo.image = image;
+            swapChainImageViews.emplace_back(device, imageViewCreateInfo);
+        }
     }
 
     void createSwapChain() {
@@ -164,11 +184,12 @@ class HelloTriangleApplication {
         // create a Device
         float queuePriority = 0.5f;
         vk::DeviceQueueCreateInfo deviceQueueCreateInfo{.queueFamilyIndex = queueIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
-        vk::DeviceCreateInfo deviceCreateInfo{.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
-                                              .queueCreateInfoCount = 1,
-                                              .pQueueCreateInfos = &deviceQueueCreateInfo,
-                                              .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
-                                              .ppEnabledExtensionNames = requiredDeviceExtension.data()};
+        vk::DeviceCreateInfo deviceCreateInfo{
+            .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
+            .queueCreateInfoCount = 1,
+            .pQueueCreateInfos = &deviceQueueCreateInfo,
+            .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
+            .ppEnabledExtensionNames = requiredDeviceExtension.data()};
 
         device = vk::raii::Device(physicalDevice, deviceCreateInfo);
         queue = vk::raii::Queue(device, queueIndex, 0);
