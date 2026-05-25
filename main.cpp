@@ -1,9 +1,10 @@
-#if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #include <vulkan/vulkan_raii.hpp>
-#else
-import vulkan_hpp;
-#endif
+#define VK_USE_PLATFORM_WAYLAND_KHR
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+
+#define GLFW_EXPOSE_NATIVE_WAYLAND
+#include <GLFW/glfw3native.h>
 
 #include <cstdlib>
 #include <iostream>
@@ -11,6 +12,9 @@ import vulkan_hpp;
 
 const std::vector<char const *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
+
+constexpr uint32_t WIDTH = 800;
+constexpr uint32_t HEIGHT = 600;
 
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
@@ -21,53 +25,82 @@ constexpr bool enableValidationLayers = true;
 class HelloTriangleApplication {
   public:
     void run() {
+        initWindow();
         initVulkan();
         mainLoop();
         cleanup();
     }
 
   private:
+    GLFWwindow *window;
+
     vk::raii::Context context;
     vk::raii::Instance instance = nullptr;
     vk::raii::PhysicalDevice physicalDevice = nullptr;
-    vk::raii::Device device = nullptr;       // logical device
-    vk::raii::Queue graphicsQueue = nullptr; // created with our logical device
+    vk::raii::Device device = nullptr; // logical device
+    vk::raii::Queue queue = nullptr;   // created with our logical device
+    vk::raii::SurfaceKHR surface = nullptr;
+
+    void createSurface() {
+        VkSurfaceKHR _surface;
+        if (glfwCreateWindowSurface(*instance, window, nullptr, &_surface) != 0) {
+            throw std::runtime_error("failed to create window surface!");
+        }
+        surface = vk::raii::SurfaceKHR(instance, _surface);
+    }
+
+    void initWindow() {
+        glfwInit();
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+    }
 
     void initVulkan() {
         createInstance();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
     }
 
     void createLogicalDevice() {
+        // find the index of the first queue family that supports graphics
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
-        auto graphicsQueueFamilyProperty = std::ranges::find_if(queueFamilyProperties, [](auto const &qfp) { return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0); });
-        auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
-        float queuePriority = 0.5f;
-        vk::DeviceQueueCreateInfo deviceQueueCreateInfo{.queueFamilyIndex = graphicsIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
-        vk::PhysicalDeviceFeatures deviceFeatures;
-        /* Vulkan is designed to be backwards compatible, which means that by default,
-         * you only get access to the basic features that were available in Vulkan 1.0.
-         * To use newer features, you need to explicitly request them during device creation.
-         *
-         * Create a chain of feature structures
-         */
-        vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain = {
-            {},                            // vk::PhysicalDeviceFeatures2 (empty for now)
-            {.dynamicRendering = true},    // Enable dynamic rendering from Vulkan 1.3
-            {.extendedDynamicState = true} // Enable extended dynamic state from the extension
-        };
+
+        // get the first index into queueFamilyProperties which supports both graphics and present
+        uint32_t queueIndex = ~0;
+        for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++) {
+            if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
+                physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface)) {
+                // found a queue family that supports both graphics and present
+                queueIndex = qfpIndex;
+                break;
+            }
+        }
+        if (queueIndex == ~0) {
+            throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
+        }
+
         std::vector<const char *> requiredDeviceExtension = {
             vk::KHRSwapchainExtensionName};
-        vk::DeviceCreateInfo deviceCreateInfo{
-            .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
-            .queueCreateInfoCount = 1,
-            .pQueueCreateInfos = &deviceQueueCreateInfo,
-            .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
-            .ppEnabledExtensionNames = requiredDeviceExtension.data()};
+        // query for Vulkan 1.3 features
+        vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain = {
+            {},                            // vk::PhysicalDeviceFeatures2
+            {.dynamicRendering = true},    // vk::PhysicalDeviceVulkan13Features
+            {.extendedDynamicState = true} // vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+        };
+
+        // create a Device
+        float queuePriority = 0.5f;
+        vk::DeviceQueueCreateInfo deviceQueueCreateInfo{.queueFamilyIndex = queueIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
+        vk::DeviceCreateInfo deviceCreateInfo{.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
+                                              .queueCreateInfoCount = 1,
+                                              .pQueueCreateInfos = &deviceQueueCreateInfo,
+                                              .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
+                                              .ppEnabledExtensionNames = requiredDeviceExtension.data()};
 
         device = vk::raii::Device(physicalDevice, deviceCreateInfo);
-        graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+        queue = vk::raii::Queue(device, queueIndex, 0);
     }
 
     bool isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) {
@@ -180,9 +213,15 @@ class HelloTriangleApplication {
     }
 
     void mainLoop() {
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+        }
     }
 
     void cleanup() {
+        glfwDestroyWindow(window);
+
+        glfwTerminate();
     }
 };
 
