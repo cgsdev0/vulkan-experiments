@@ -2,6 +2,6 @@ build.ninja
 .ninja*
 CMakeCache.txt
 CMakeFiles/
-VulkanTutorial/
+VulkanTutorial
 .cache
 compile_commands.json
