@@ -1,8 +1,11 @@
 ---
+BreakAfterReturnType: None
+PenaltyReturnTypeOnItsOwnLine: 200
 AllowShortIfStatementsOnASingleLine: 'true'
+AllowShortBlocksOnASingleLine: Never
 ColumnLimit: '0'
 IndentCaseLabels: 'false'
-IndentWidth: '4'
+IndentWidth: '2'
 NamespaceIndentation: All
 
 ...
