@@ -30,7 +30,7 @@ if(ENABLE_CPP20_MODULE)
   target_include_directories(VulkanCppModule PUBLIC "${Vulkan_INCLUDE_DIR}")
   target_link_libraries(VulkanCppModule PUBLIC Vulkan::Vulkan)
 
-  set_target_properties(VulkanCppModule PROPERTIES CXX_STANDARD 20)
+  set_target_properties(VulkanCppModule PROPERTIES CXX_STANDARD 23)
 
   # Add MSVC-specific compiler options for proper C++ module support
   if(MSVC)
@@ -75,7 +75,7 @@ set(TEMPLATE_DIR ${CMAKE_BINARY_DIR})
 
 add_executable (${TEMPLATE_NAME} main.cpp)
 set_target_properties (${TEMPLATE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEMPLATE_DIR})
-set_target_properties (${TEMPLATE_NAME} PROPERTIES CXX_STANDARD 20)
+set_target_properties (${TEMPLATE_NAME} PROPERTIES CXX_STANDARD 23)
 target_link_libraries (${TEMPLATE_NAME} Vulkan::cppm glfw)
 target_include_directories (${TEMPLATE_NAME} PRIVATE ${STB_INCLUDEDIR})
 
