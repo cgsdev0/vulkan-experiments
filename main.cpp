@@ -3,8 +3,6 @@
 #include <vulkan/vulkan_raii.hpp>
 #define VK_USE_PLATFORM_WAYLAND_KHR
 #include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WAYLAND
-#include <GLFW/glfw3native.h>
 
 #define uint unsigned int
 
@@ -12,22 +10,16 @@ using namespace std;
 using namespace vk;
 
 int main() {
-    GLFWwindow *window;
 
     raii::Context context;
-    raii::PhysicalDevice physDev = nullptr;
-    raii::Device dev = nullptr;  // logical device
-    raii::Queue queue = nullptr; // created with our logical device
-    raii::SwapchainKHR swapChain = nullptr;
-    vector<Image> swapChainImages;
     SurfaceFormatKHR fmt{.format = (Format)50};
     Extent2D e;
+    e.setWidth(800).setHeight(600);
     vector<raii::ImageView> swapChainImageViews;
-    raii::Pipeline graphicsPipeline = nullptr;
-    raii::CommandPool commandPool = nullptr;
+
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, 0);
-    window = glfwCreateWindow(800, 600, "", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(800, 600, "", nullptr, nullptr);
 
     constexpr ApplicationInfo appInfo{
         .apiVersion = ApiVersion14};
@@ -43,68 +35,51 @@ int main() {
 
     VkSurfaceKHR surface;
     glfwCreateWindowSurface(*instance, window, nullptr, &surface);
+    auto physDev = instance.enumeratePhysicalDevices()[0];
 
-    // pickPhysicalDevice
-    physDev = instance.enumeratePhysicalDevices()[0];
+    vector<const char *> required = {
+        KHRSwapchainExtensionName};
+    StructureChain<PhysicalDeviceFeatures2, PhysicalDeviceVulkan13Features> featureChain = {
+        {},
+        {.dynamicRendering = true},
+    };
 
-    // createLogicalDevice()
-    {
-        vector<const char *> requiredDeviceExtension = {
-            KHRSwapchainExtensionName};
-        StructureChain<PhysicalDeviceFeatures2, PhysicalDeviceVulkan13Features> featureChain = {
-            {},
-            {.dynamicRendering = true},
-        };
+    // create a Device
+    float qp = 0.5f;
+    DeviceQueueCreateInfo qInfo;
+    qInfo.setQueuePriorities(qp);
+    DeviceCreateInfo devInfo{
+        .pNext = &featureChain.get<PhysicalDeviceFeatures2>(),
+        .enabledExtensionCount = (uint)required.size(),
+        .ppEnabledExtensionNames = required.data()};
+    devInfo.setQueueCreateInfos(qInfo);
 
-        // create a Device
-        float queuePriority = 0.5f;
-        DeviceQueueCreateInfo deviceQueueCreateInfo{.queueCount = 1, .pQueuePriorities = &queuePriority};
-        DeviceCreateInfo deviceCreateInfo{
-            .pNext = &featureChain.get<PhysicalDeviceFeatures2>(),
-            .queueCreateInfoCount = 1,
-            .pQueueCreateInfos = &deviceQueueCreateInfo,
-            .enabledExtensionCount = (uint)requiredDeviceExtension.size(),
-            .ppEnabledExtensionNames = requiredDeviceExtension.data()};
+    auto dev = raii::Device(physDev, devInfo);
+    auto queue = raii::Queue(dev, 0, 0);
+    auto surfaceCapabilities = physDev.getSurfaceCapabilitiesKHR(surface);
 
-        dev = raii::Device(physDev, deviceCreateInfo);
-        queue = raii::Queue(dev, 0, 0);
-    }
-    // createSwapChain
-    {
-        SurfaceCapabilitiesKHR surfaceCapabilities = physDev.getSurfaceCapabilitiesKHR(surface);
-        e.setWidth(800).setHeight(600);
-        uint minImageCount = 3;
-
-        SwapchainCreateInfoKHR swapChainCreateInfo{
-            .surface = surface,
-            .minImageCount = minImageCount,
-            .imageFormat = fmt.format,
-            .imageColorSpace = fmt.colorSpace,
-            .imageExtent = e,
-            .imageArrayLayers = 1,
-            .imageUsage = ImageUsageFlagBits::eColorAttachment,
-            .imageSharingMode = SharingMode::eExclusive,
-            .preTransform = surfaceCapabilities.currentTransform,
-            .compositeAlpha = CompositeAlphaFlagBitsKHR::eOpaque,
-            .presentMode = (PresentModeKHR)1,
-            .clipped = true};
-        swapChainCreateInfo.oldSwapchain = nullptr;
-        swapChain = raii::SwapchainKHR(dev, swapChainCreateInfo);
-        swapChainImages = swapChain.getImages();
-    }
-
-    // createImageViews
-    {
+    SwapchainCreateInfoKHR swapChainCreateInfo{
+        .surface = surface,
+        .minImageCount = 3,
+        .imageFormat = fmt.format,
+        .imageColorSpace = fmt.colorSpace,
+        .imageExtent = e,
+        .imageArrayLayers = 1,
+        .imageUsage = ImageUsageFlagBits::eColorAttachment,
+        .imageSharingMode = SharingMode::eExclusive,
+        .preTransform = surfaceCapabilities.currentTransform,
+        .compositeAlpha = CompositeAlphaFlagBitsKHR::eOpaque,
+        .presentMode = (PresentModeKHR)1,
+        .clipped = true};
+    auto swapChain = raii::SwapchainKHR(dev, swapChainCreateInfo);
+    auto swapChainImages = swapChain.getImages();
+    for (auto &image : swapChainImages) {
         ImageViewCreateInfo imageViewCreateInfo{
+            .image = image,
             .viewType = ImageViewType::e2D,
             .format = fmt.format,
             .subresourceRange = {ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
-
-        imageViewCreateInfo.subresourceRange = {.aspectMask = ImageAspectFlagBits::eColor, .levelCount = 1, .layerCount = 1};
-        for (auto &image : swapChainImages) {
-            imageViewCreateInfo.image = image;
-            swapChainImageViews.emplace_back(dev, imageViewCreateInfo);
-        }
+        swapChainImageViews.emplace_back(dev, imageViewCreateInfo);
     }
 
     // createGraphicsPipeline
@@ -180,11 +155,9 @@ int main() {
         {.colorAttachmentCount = 1,
          .pColorAttachmentFormats = &fmt.format}};
 
-    graphicsPipeline = raii::Pipeline(dev, nullptr, pipelineCreateInfoChain.get<GraphicsPipelineCreateInfo>());
+    auto graphicsPipeline = raii::Pipeline(dev, nullptr, pipelineCreateInfoChain.get<GraphicsPipelineCreateInfo>());
 
-    commandPool = raii::CommandPool(
-        dev,
-        {.flags = CommandPoolCreateFlagBits::eResetCommandBuffer});
+    auto commandPool = raii::CommandPool(dev, {.flags = CommandPoolCreateFlagBits::eResetCommandBuffer});
 
     auto cbuf = std::move(
         raii::CommandBuffers(
