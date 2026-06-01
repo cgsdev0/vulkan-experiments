@@ -58,8 +58,6 @@ int main() {
 
     auto dev = raii::Device(physDev, devInfo);
     auto queue = raii::Queue(dev, 0, 0);
-    auto surfaceCapabilities =
-        physDev.getSurfaceCapabilitiesKHR(surface);
 
     SurfaceFormatKHR fmt{.format = (Format)50};
     Extent2D e(800, 600);
@@ -68,17 +66,9 @@ int main() {
         .surface = surface,
         .minImageCount = 3,
         .imageFormat = fmt.format,
-        .imageColorSpace = fmt.colorSpace,
         .imageExtent = e,
         .imageArrayLayers = 1,
-        .imageUsage = ImageUsageFlagBits::eColorAttachment,
-        .imageSharingMode = SharingMode::eExclusive,
-        .preTransform =
-            surfaceCapabilities.currentTransform,
-        .compositeAlpha =
-            CompositeAlphaFlagBitsKHR::eOpaque,
-        .presentMode = (PresentModeKHR)1,
-        .clipped = true};
+        .imageUsage = ImageUsageFlagBits::eColorAttachment};
     auto swapchain = raii::SwapchainKHR(dev, info);
     auto images = swapchain.getImages();
     vector<raii::ImageView> views;
@@ -94,13 +84,14 @@ int main() {
 
     auto f = ifstream("shaders/slang.spv", ios::binary);
     vector<char> code(istreambuf_iterator<char>(f), {});
+
     ShaderModuleCreateInfo createInfo{
         .codeSize = code.size(),
         .pCode = (uint *)(code.data())};
 
     raii::ShaderModule shaderModule{dev, createInfo};
 
-    PipelineShaderStageCreateInfo shaderStages[] = {
+    PipelineShaderStageCreateInfo stages[] = {
         {.stage = ShaderStageFlagBits::eVertex,
          .module = shaderModule,
          .pName = "vertMain"},
@@ -108,13 +99,13 @@ int main() {
          .module = shaderModule,
          .pName = "fragMain"}};
 
-    vector<DynamicState> dynamicStates = {
-        DynamicState::eViewport, DynamicState::eScissor};
+    vector<DynamicState> states = {DynamicState::eViewport,
+                                   DynamicState::eScissor};
 
-    PipelineDynamicStateCreateInfo dynamicState;
-    dynamicState.setDynamicStates(dynamicStates);
+    PipelineDynamicStateCreateInfo ds;
+    ds.setDynamicStates(states);
 
-    PipelineInputAssemblyStateCreateInfo inputAssembly{
+    PipelineInputAssemblyStateCreateInfo input{
         .topology = PrimitiveTopology::eTriangleList};
 
     Viewport viewport(0, 0, 800, 600);
@@ -124,11 +115,11 @@ int main() {
     vp.setViewports(viewport);
     vp.setScissors(scissor);
 
-    PipelineColorBlendAttachmentState colorBlendAttachment{
+    PipelineColorBlendAttachmentState cba{
         .colorWriteMask = ColorComponentFlagBits(15)};
 
     PipelineColorBlendStateCreateInfo blend;
-    blend.setAttachments({colorBlendAttachment});
+    blend.setAttachments({cba});
 
     PipelineRasterizationStateCreateInfo rs;
     PipelineMultisampleStateCreateInfo ms;
@@ -138,18 +129,18 @@ int main() {
     PipelineRenderingCreateInfo pri;
     pri.setColorAttachmentFormats(fmt.format);
 
-    auto graphicsPipeline = raii::Pipeline(
-        dev, nullptr,
-        {.pNext = &pri,
-         .stageCount = 2,
-         .pStages = shaderStages,
-         .pInputAssemblyState = &inputAssembly,
-         .pViewportState = &vp,
-         .pRasterizationState = &rs,
-         .pMultisampleState = &ms,
-         .pColorBlendState = &blend,
-         .pDynamicState = &dynamicState,
-         .layout = pipelineLayout});
+    auto graphicsPipeline =
+        raii::Pipeline(dev, nullptr,
+                       {.pNext = &pri,
+                        .stageCount = 2,
+                        .pStages = stages,
+                        .pInputAssemblyState = &input,
+                        .pViewportState = &vp,
+                        .pRasterizationState = &rs,
+                        .pMultisampleState = &ms,
+                        .pColorBlendState = &blend,
+                        .pDynamicState = &ds,
+                        .layout = pipelineLayout});
 
     auto commandPool = raii::CommandPool(
         dev, {.flags = CommandPoolCreateFlagBits::
