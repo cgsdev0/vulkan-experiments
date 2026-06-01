@@ -111,20 +111,15 @@ int main() {
     vector<DynamicState> dynamicStates = {
         DynamicState::eViewport, DynamicState::eScissor};
 
-    PipelineDynamicStateCreateInfo dynamicState{
-        .dynamicStateCount =
-            static_cast<uint>(dynamicStates.size()),
-        .pDynamicStates = dynamicStates.data()};
-
-    PipelineVertexInputStateCreateInfo vInfo;
+    PipelineDynamicStateCreateInfo dynamicState;
+    dynamicState.setDynamicStates(dynamicStates);
 
     PipelineInputAssemblyStateCreateInfo inputAssembly{
         .topology = PrimitiveTopology::eTriangleList};
 
-    Viewport viewport{.width = (float)e.width,
-                      .height = (float)e.height};
-
+    Viewport viewport(0, 0, 800, 600);
     Rect2D scissor{Offset2D{0, 0}, e};
+
     PipelineViewportStateCreateInfo vp;
     vp.setViewports(viewport);
     vp.setScissors(scissor);
@@ -133,64 +128,45 @@ int main() {
         .colorWriteMask = ColorComponentFlagBits(15)};
 
     PipelineColorBlendStateCreateInfo blend;
-    blend.logicOp = LogicOp::eCopy;
     blend.setAttachments({colorBlendAttachment});
 
-    PipelineRasterizationStateCreateInfo rasterizer{
-        .polygonMode = PolygonMode::eFill,
-        .cullMode = CullModeFlagBits::eBack,
-        .frontFace = FrontFace::eClockwise,
-        .lineWidth = 1};
-
-    PipelineMultisampleStateCreateInfo multisampling{
-        .rasterizationSamples = SampleCountFlagBits::e1,
-    };
+    PipelineRasterizationStateCreateInfo rs;
+    PipelineMultisampleStateCreateInfo ms;
 
     auto pipelineLayout = raii::PipelineLayout(dev, {});
 
-    StructureChain<GraphicsPipelineCreateInfo,
-                   PipelineRenderingCreateInfo>
-        pipelineCreateInfoChain = {
-            {.stageCount = 2,
-             .pStages = shaderStages,
-             .pVertexInputState = &vInfo,
-             .pInputAssemblyState = &inputAssembly,
-             .pViewportState = &vp,
-             .pRasterizationState = &rasterizer,
-             .pMultisampleState = &multisampling,
-             .pColorBlendState = &blend,
-             .pDynamicState = &dynamicState,
-             .layout = pipelineLayout,
-             .renderPass = nullptr},
-            {.colorAttachmentCount = 1,
-             .pColorAttachmentFormats = &fmt.format}};
+    PipelineRenderingCreateInfo pri;
+    pri.setColorAttachmentFormats(fmt.format);
 
     auto graphicsPipeline = raii::Pipeline(
         dev, nullptr,
-        pipelineCreateInfoChain
-            .get<GraphicsPipelineCreateInfo>());
+        {.pNext = &pri,
+         .stageCount = 2,
+         .pStages = shaderStages,
+         .pInputAssemblyState = &inputAssembly,
+         .pViewportState = &vp,
+         .pRasterizationState = &rs,
+         .pMultisampleState = &ms,
+         .pColorBlendState = &blend,
+         .pDynamicState = &dynamicState,
+         .layout = pipelineLayout});
 
     auto commandPool = raii::CommandPool(
         dev, {.flags = CommandPoolCreateFlagBits::
                   eResetCommandBuffer});
 
-    auto cbuf = std::move(
-        raii::CommandBuffers(
-            dev, {.commandPool = commandPool,
-                  .level = CommandBufferLevel::ePrimary,
-                  .commandBufferCount = 1})
-            .front());
+    auto cbuf =
+        std::move(raii::CommandBuffers(
+                      dev, {.commandPool = commandPool,
+                            .commandBufferCount = 1})
+                      .front());
     auto [result, idx] = swapchain.acquireNextImage(
         UINT64_MAX, nullptr, nullptr);
     cbuf.begin({});
-    ClearValue clearColor = ClearColorValue(0, 0, 0, 1);
-    RenderingAttachmentInfo attachmentInfo{
-        .imageView = views[idx],
-        .imageLayout = ImageLayout::eColorAttachmentOptimal,
-        .loadOp = AttachmentLoadOp::eClear,
-        .clearValue = clearColor};
+    RenderingAttachmentInfo attachmentInfo{.imageView =
+                                               views[idx]};
     RenderingInfo renderingInfo = {
-        .renderArea = {.extent = e}, .layerCount = 1};
+        .renderArea = {.extent = e}};
     renderingInfo.setColorAttachments(attachmentInfo);
     cbuf.beginRendering(renderingInfo);
     cbuf.bindPipeline(PipelineBindPoint::eGraphics,
@@ -200,11 +176,8 @@ int main() {
     cbuf.draw(3, 1, 0, 0);
     cbuf.endRendering();
     cbuf.end();
-    PipelineStageFlags waitDestinationStageMask(
-        PipelineStageFlagBits::eColorAttachmentOutput);
     SubmitInfo s;
-    s.setCommandBuffers(*cbuf);
-    queue.submit(s, nullptr);
+    queue.submit(s.setCommandBuffers(*cbuf), nullptr);
     result = queue.presentKHR({.swapchainCount = 1,
                                .pSwapchains = &*swapchain,
                                .pImageIndices = &idx});
