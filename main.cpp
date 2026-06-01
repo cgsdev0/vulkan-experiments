@@ -203,7 +203,7 @@ int main() {
     PipelineStageFlags waitDestinationStageMask(
         PipelineStageFlagBits::eColorAttachmentOutput);
     SubmitInfo s;
-    s.setCommandBuffers(cbuf);
+    s.setCommandBuffers(*cbuf);
     queue.submit(s, nullptr);
     result = queue.presentKHR({.swapchainCount = 1,
                                .pSwapchains = &*swapchain,
