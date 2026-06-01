@@ -1,6 +1,6 @@
 ---
 AllowShortIfStatementsOnASingleLine: 'true'
-ColumnLimit: '60'
+ColumnLimit: '70'
 IndentCaseLabels: 'false'
 IndentWidth: '4'
 NamespaceIndentation: All

@@ -13,47 +13,32 @@ int main() {
 
     raii::Context context;
 
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, 0);
-    GLFWwindow *window =
-        glfwCreateWindow(800, 600, "", nullptr, nullptr);
-
     ApplicationInfo app;
     app.apiVersion = ApiVersion14;
 
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, 0);
     uint count = 0;
     auto ext = glfwGetRequiredInstanceExtensions(&count);
 
-    auto instance = raii::Instance(
-        context, {.pApplicationInfo = &app,
-                  .enabledExtensionCount = count,
-                  .ppEnabledExtensionNames = ext});
+    auto instance =
+        raii::Instance(context, {.pApplicationInfo = &app,
+                                 .enabledExtensionCount = count,
+                                 .ppEnabledExtensionNames = ext});
 
     VkSurfaceKHR surface;
-    glfwCreateWindowSurface(*instance, window, nullptr,
-                            &surface);
+    glfwCreateWindowSurface(
+        *instance, glfwCreateWindow(800, 600, "", nullptr, nullptr),
+        nullptr, &surface);
 
     // skip 1
     auto physDev = instance.enumeratePhysicalDevices()[0];
-
-    vector<const char *> required = {
-        KHRSwapchainExtensionName};
-    StructureChain<PhysicalDeviceFeatures2,
-                   PhysicalDeviceVulkan13Features>
-        featureChain = {
-            {},
-            {.dynamicRendering = true},
-        };
-
     // create a Device
     float qp = 0;
     DeviceQueueCreateInfo qInfo;
     qInfo.setQueuePriorities(qp);
-    DeviceCreateInfo devInfo{
-        .pNext =
-            &featureChain.get<PhysicalDeviceFeatures2>(),
-        .enabledExtensionCount = (uint)required.size(),
-        .ppEnabledExtensionNames = required.data()};
+    DeviceCreateInfo devInfo;
+    devInfo.setPEnabledExtensionNames(KHRSwapchainExtensionName);
     devInfo.setQueueCreateInfos(qInfo);
 
     auto dev = raii::Device(physDev, devInfo);
@@ -75,19 +60,17 @@ int main() {
     for (auto &image : images) {
         ImageViewCreateInfo iv{
             .image = image,
-            .viewType = ImageViewType::e2D,
             .format = fmt.format,
-            .subresourceRange = {
-                ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+            .subresourceRange = {ImageAspectFlagBits::eColor, 0, 1, 0,
+                                 1}};
         views.emplace_back(dev, iv);
     }
 
-    auto f = ifstream("shaders/slang.spv", ios::binary);
-    vector<char> code(istreambuf_iterator<char>(f), {});
+    auto file = ifstream("shaders/slang.spv", ios::binary);
+    vector<char> code(istreambuf_iterator<char>(file), {});
 
-    ShaderModuleCreateInfo createInfo{
-        .codeSize = code.size(),
-        .pCode = (uint *)(code.data())};
+    ShaderModuleCreateInfo createInfo{.codeSize = code.size(),
+                                      .pCode = (uint *)(code.data())};
 
     raii::ShaderModule shaderModule{dev, createInfo};
 
@@ -143,21 +126,18 @@ int main() {
                         .layout = pipelineLayout});
 
     auto commandPool = raii::CommandPool(
-        dev, {.flags = CommandPoolCreateFlagBits::
-                  eResetCommandBuffer});
+        dev,
+        {.flags = CommandPoolCreateFlagBits::eResetCommandBuffer});
 
-    auto cbuf =
-        std::move(raii::CommandBuffers(
-                      dev, {.commandPool = commandPool,
-                            .commandBufferCount = 1})
-                      .front());
-    auto [result, idx] = swapchain.acquireNextImage(
-        UINT64_MAX, nullptr, nullptr);
+    auto cbuf = std::move(
+        raii::CommandBuffers(dev, {.commandPool = commandPool,
+                                   .commandBufferCount = 1})
+            .front());
+    auto [result, idx] =
+        swapchain.acquireNextImage(UINT64_MAX, nullptr, nullptr);
     cbuf.begin({});
-    RenderingAttachmentInfo attachmentInfo{.imageView =
-                                               views[idx]};
-    RenderingInfo renderingInfo = {
-        .renderArea = {.extent = e}};
+    RenderingAttachmentInfo attachmentInfo{.imageView = views[idx]};
+    RenderingInfo renderingInfo = {.renderArea = {.extent = e}};
     renderingInfo.setColorAttachments(attachmentInfo);
     cbuf.beginRendering(renderingInfo);
     cbuf.bindPipeline(PipelineBindPoint::eGraphics,
