@@ -31,6 +31,7 @@ mkShell {
 
   shellHook = ''
     export CMAKE_PREFIX_PATH=${pkgs.ktx-tools}:$CMAKE_PREFIX_PATH
+    export STB_INCLUDEDIR=${pkgs.stb}/include
   '';
 
   # If it doesn’t get picked up through nix magic
