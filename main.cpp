@@ -164,7 +164,6 @@ private:
   vk::raii::Image depthImage = nullptr;
   vk::raii::DeviceMemory depthImageMemory = nullptr;
   vk::raii::ImageView depthImageView = nullptr;
-  vk::Format depthFormat;
 
   //
   //
@@ -208,9 +207,9 @@ private:
     createSwapChain();
     createImageViews();
     createDescriptorSetLayout();
+    createDepthResources();
     createGraphicsPipeline();
     createCommandPool();
-    createDepthResources();
     createTextureImage();
     createTextureImageView();
     createTextureSampler();
@@ -284,7 +283,7 @@ private:
   }
 
   void createDepthResources() {
-    depthFormat = findDepthFormat();
+    vk::Format depthFormat = findDepthFormat();
     std::tie(depthImage, depthImageMemory) = createImage(swapChainExtent.width, swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
     depthImageView = createImageView(depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
   }
@@ -665,7 +664,6 @@ private:
 
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, *descriptorSets[0], nullptr);
     commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
-    commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
     commandBuffer.endRendering();
     // After rendering, transition the swapchain image to vk::ImageLayout::ePresentSrcKHR
     transition_image_layout(swapChainImages[imageIndex], vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
@@ -677,7 +675,7 @@ private:
     commandBuffer.end();
   }
 
-  void transition_image_layout(const vk::Image &image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+  void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
                                vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
                                vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask,
                                vk::ImageAspectFlags image_aspect_flags) {
@@ -799,10 +797,7 @@ private:
 
     pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
 
-    vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo{
-        .colorAttachmentCount = 1,
-        .pColorAttachmentFormats = &swapChainSurfaceFormat.format};
-
+    vk::Format depthFormat = findDepthFormat();
     vk::PipelineDepthStencilStateCreateInfo depthStencil{
         .depthTestEnable = vk::True,
         .depthWriteEnable = vk::True,
@@ -1131,7 +1126,7 @@ private:
     auto currentTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
     UniformBufferObject ubo{};
-    ubo.model = rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.model = rotate(glm::mat4(1.0f), sin(time) * glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.proj =
         glm::perspective(glm::radians(45.0f), static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height), 0.1f, 10.0f);
