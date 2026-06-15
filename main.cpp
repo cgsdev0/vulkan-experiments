@@ -3,10 +3,15 @@
 #include <chrono>
 #include <cstdint> // Necessary for uint32_t
 #include <fstream>
+#include <unordered_map>
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -29,6 +34,8 @@ constexpr int MAX_FRAMES_IN_FLIGHT = 10;
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
+const std::string MODEL_PATH = "models/viking_room.obj";
+const std::string TEXTURE_PATH = "textures/viking_room.png";
 
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
@@ -60,22 +67,25 @@ struct Vertex {
           .format = vk::Format::eR32G32Sfloat,
           .offset = offsetof(Vertex, texCoord)}}};
   }
+  bool operator==(const Vertex &other) const {
+    return pos == other.pos && color == other.color && texCoord == other.texCoord;
+  }
 };
+namespace std {
+  template <>
+  struct hash<Vertex> {
+    size_t operator()(Vertex const &vertex) const {
+      return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.texCoord) << 1);
+    }
+  };
+} // namespace std
 
-const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}};
-
-const std::vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0,
-    4, 5, 6, 6, 7, 4};
+std::vector<Vertex> vertices;
+std::vector<uint32_t> indices;
+vk::raii::Buffer vertexBuffer = nullptr;
+vk::raii::DeviceMemory vertexBufferMemory = nullptr;
+vk::raii::Buffer indexBuffer = nullptr;
+vk::raii::DeviceMemory indexBufferMemory = nullptr;
 
 struct UniformBufferObject {
   glm::mat4 model;
@@ -204,6 +214,7 @@ private:
     createTextureImage();
     createTextureImageView();
     createTextureSampler();
+    loadModel();
     createVertexBuffer();
     createIndexBuffer();
     createUniformBuffers();
@@ -211,6 +222,48 @@ private:
     createDescriptorSets();
     createCommandBuffer();
     createSyncObjects();
+  }
+
+  void loadModel() {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+      throw std::runtime_error(warn + err);
+    }
+
+    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+    for (const auto &shape : shapes) {
+      for (const auto &index : shape.mesh.indices) {
+        Vertex vertex{};
+
+        vertex.pos = {
+            attrib.vertices[3 * index.vertex_index + 0],
+            attrib.vertices[3 * index.vertex_index + 1],
+            attrib.vertices[3 * index.vertex_index + 2]};
+
+        vertex.texCoord = {
+            attrib.texcoords[2 * index.texcoord_index + 0],
+            1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
+
+        vertex.color = {1.0f, 1.0f, 1.0f};
+
+#if 1
+        auto [it, inserted] = uniqueVertices.insert({vertex, static_cast<uint32_t>(vertices.size())});
+        if (inserted) {
+          vertices.push_back(vertex);
+        }
+
+        indices.push_back(it->second);
+#else
+        vertices.push_back(vertex);
+        indices.push_back(static_cast<uint32_t>(indices.size()));
+#endif
+      }
+    }
   }
 
   vk::Format findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features) {
@@ -361,7 +414,7 @@ private:
   void createTextureImage() {
     int texWidth, texHeight, texChannels;
     stbi_uc *pixels = stbi_load(
-        "textures/texture.png",
+        TEXTURE_PATH.c_str(),
         &texWidth,
         &texHeight,
         &texChannels,
@@ -561,14 +614,15 @@ private:
     commandBuffer.begin({});
     // Before starting rendering, transition the swapchain image to
     // vk::ImageLayout::eColorAttachmentOptimal
-    transition_image_layout(swapChainImages[imageIndex],
-                            vk::ImageLayout::eUndefined,
-                            vk::ImageLayout::eColorAttachmentOptimal,
-                            {},                                                 // srcAccessMask (no need to wait for previous operations)
-                            vk::AccessFlagBits2::eColorAttachmentWrite,         // dstAccessMask
-                            vk::PipelineStageFlagBits2::eColorAttachmentOutput, // srcStage
-                            vk::PipelineStageFlagBits2::eColorAttachmentOutput, // dstStage
-                            vk::ImageAspectFlagBits::eColor);
+    transition_image_layout(
+        swapChainImages[imageIndex],
+        vk::ImageLayout::eUndefined,
+        vk::ImageLayout::eColorAttachmentOptimal,
+        {},                                                 // srcAccessMask (no need to wait for previous operations)
+        vk::AccessFlagBits2::eColorAttachmentWrite,         // dstAccessMask
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput, // srcStage
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput, // dstStage
+        vk::ImageAspectFlagBits::eColor);
     // Transition depth image to depth attachment optimal layout
     transition_image_layout(
         *depthImage,
@@ -604,7 +658,7 @@ private:
     commandBuffer.beginRendering(renderingInfo);
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
     commandBuffer.bindVertexBuffers(0, *vertexBuffer, {0});
-    commandBuffer.bindIndexBuffer(*indexBuffer, 0, vk::IndexType::eUint16);
+    commandBuffer.bindIndexBuffer(*indexBuffer, 0, vk::IndexTypeValue<decltype(indices)::value_type>::value);
     commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
                                               static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
     commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
